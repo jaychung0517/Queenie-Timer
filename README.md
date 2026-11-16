@@ -1,1 +1,1 @@
-# Queenie-Timer
+# 鍾靈專用計時器
