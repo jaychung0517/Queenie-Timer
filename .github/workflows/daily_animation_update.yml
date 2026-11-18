@@ -1,0 +1,45 @@
+name: 每日早六點與晚五點全自動更新星朵動畫
+
+on:
+  schedule:
+    # 台灣時間 (UTC+8) 早上 06:00 = UTC 22:00；下午 17:00 = UTC 09:00
+    - cron: '0 22,9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 簽出 GitHub Pages 儲存庫
+        uses: actions/checkout@v4
+
+      - name: 設定 Python 環境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安裝套件 (google-genai 與 pillow)
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-genai pillow
+
+      - name: 生成 6 張全新鍾靈與熱門 IP 共舞動畫圖片
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python scripts/generate_daily_animations.py
+
+      - name: 自動提交並推送至 GitHub Pages
+        run: |
+          git config user.name "Starry-Magic-Bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add animations/ daily_animations.json
+          if git diff --staged --quiet; then
+            echo "沒有新的變更需要提交"
+          else
+            git commit -m "chore: 自動更新每日獎勵動畫 ($(TZ='Asia/Taipei' date '+%Y-%m-%d %H:%M'))"
+            git push
+          fi
