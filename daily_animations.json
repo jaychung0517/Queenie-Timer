@@ -1,0 +1,34 @@
+{
+  "slot_key": "2026-11-16-PM",
+  "updated_at": "2026-11-17 08:45",
+  "three_mode_1": "siren_mermaid",
+  "three_mode_2": "teenieping_heart",
+  "used_keys": [
+    "kuromi_melody",
+    "teenieping_heart",
+    "siren_mermaid"
+  ],
+  "animations": [
+    {
+      "title": "1. 鍾靈（紫黑格紋甜酷搖滾短裙＋蝴蝶結髮箍）＆《三麗鷗》酷洛米、巴庫霓虹演唱會舞",
+      "tag": "🎬 主打 1：三麗鷗（酷洛米＆巴庫）＋鍾靈紫黑搖滾裙",
+      "caption": "鍾靈換上甜酷紫黑格紋蕾絲搖滾短裙，手持發光星星麥克風比 YA ➔ 俏皮眨眼跳起比出大愛心，與酷洛米＆巴庫在霓虹糖果舞台熱舞！",
+      "frameA": "./animations/anim1_a.jpg",
+      "frameB": "./animations/anim1_b.jpg"
+    },
+    {
+      "title": "2. 鍾靈（草莓馬卡龍粉白澎澎紗裙）＆韓國《奇妙萌可》愛心萌可、甜點萌可下午茶舞",
+      "tag": "🎬 主打 2：韓國《奇妙萌可》愛心萌可＆甜點萌可＋鍾靈馬卡龍紗裙",
+      "caption": "鍾靈換上夢幻草莓馬卡龍粉白多層紗裙，在草莓馬卡龍塔旁捧臉甜笑 ➔ 開懷跳起比手指愛心與 YA，與愛心萌可＆甜點萌可飛翔歡呼！",
+      "frameA": "./animations/anim2_a.jpg",
+      "frameB": "./animations/anim2_b.jpg"
+    },
+    {
+      "title": "3. 鍾靈（蜜桃珊瑚荷葉洋裝＋珍珠貝殼包）＆《吉伊卡哇人魚島》人魚賽蓮、兔兔Usagi樂園舞",
+      "tag": "🎬 主打 3：吉伊卡哇人魚島「人魚賽蓮」＆兔兔Usagi＋鍾靈珊瑚荷葉洋裝",
+      "caption": "鍾靈換上蜜桃珊瑚粉荷葉邊洋裝與珍珠貝殼包，在海底摩天輪樂園手拿星星氣球比 YA ➔ 眨眼躍起比出大愛心，與人魚賽蓮＆兔兔 Usagi 開心彈跳！",
+      "frameA": "./animations/anim3_a.jpg",
+      "frameB": "./animations/anim3_b.jpg"
+    }
+  ]
+}
