@@ -1179,8 +1179,96 @@
       grandRewardClaimedToday: false,
       activeFixedTaskId: 'dc-1',
       fixedTaskSavedNotes: {},
-      danceIndex: 0
+      danceIndex: 0,
+      lastPeriodKey: ''
     };
+
+    function getTaiwanDateParts(dateObj = new Date()) {
+      try {
+        const dtf = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Taipei',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        });
+        const parts = {};
+        dtf.formatToParts(dateObj).forEach(p => {
+          if (p.type !== 'literal') parts[p.type] = p.value;
+        });
+        const year = parseInt(parts.year, 10);
+        const month = parseInt(parts.month, 10);
+        const day = parseInt(parts.day, 10);
+        let hour = parseInt(parts.hour, 10);
+        if (hour === 24) hour = 0;
+        const minute = parseInt(parts.minute, 10);
+        const dateStr = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        return { year, month, day, hour, minute, dateStr };
+      } catch (e) {
+        const tw = new Date(dateObj.getTime() + 8 * 3600 * 1000);
+        const year = tw.getUTCFullYear();
+        const month = tw.getUTCMonth() + 1;
+        const day = tw.getUTCDate();
+        const hour = tw.getUTCHours();
+        const minute = tw.getUTCMinutes();
+        const dateStr = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        return { year, month, day, hour, minute, dateStr };
+      }
+    }
+
+    function getTaiwanPeriodKey(dateObj = new Date()) {
+      const { dateStr, hour } = getTaiwanDateParts(dateObj);
+      const half = hour < 12 ? 'AM' : 'PM';
+      return `${dateStr}-${half}`;
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem('starry_adhd_helper_v1', JSON.stringify(appState));
+      } catch (e) {
+        // Ignore storage error
+      }
+    }
+
+    function resetDailyProgressForNewPeriod(newPeriodKey) {
+      if (appState.routines && typeof appState.routines === 'object') {
+        Object.keys(appState.routines).forEach(key => {
+          const routine = appState.routines[key];
+          if (routine && Array.isArray(routine.steps)) {
+            routine.steps.forEach(s => {
+              s.done = false;
+            });
+          }
+        });
+      }
+      appState.completedFixedTaskIds = [];
+      appState.fixedTaskSavedNotes = {};
+      appState.grandRewardClaimedToday = false;
+      appState.todayDone = 0;
+      appState.activeStepIndex = 0;
+      appState.lastPeriodKey = newPeriodKey;
+      saveState();
+    }
+
+    function checkAndResetForNewPeriod(shouldRerender = false) {
+      const currentPeriodKey = getTaiwanPeriodKey();
+      if (!appState.lastPeriodKey || appState.lastPeriodKey !== currentPeriodKey) {
+        const hadPreviousPeriod = Boolean(appState.lastPeriodKey);
+        resetDailyProgressForNewPeriod(currentPeriodKey);
+        if (shouldRerender) {
+          if (typeof renderHeaderAndStats === 'function') renderHeaderAndStats();
+          if (typeof renderRoutinesAndSteps === 'function') renderRoutinesAndSteps();
+          if (typeof updateTimerUI === 'function') updateTimerUI();
+          if (hadPreviousPeriod && typeof showToast === 'function') {
+            showToast('新時段開始囉！每日任務與倒數條件已自動重置 ✨', '🌅');
+          }
+        }
+        return true;
+      }
+      return false;
+    }
 
     // Load saved state safely
     try {
@@ -1219,13 +1307,8 @@
       // Ignore storage error in restricted iframe
     }
 
-    function saveState() {
-      try {
-        localStorage.setItem('starry_adhd_helper_v1', JSON.stringify(appState));
-      } catch (e) {
-        // Ignore storage error
-      }
-    }
+    // Immediately enforce Taiwan-time AM/PM period reset BEFORE any UI rendering
+    checkAndResetForNewPeriod(false);
 
     // =====================================================
     // WEB AUDIO API SOUND EFFECTS & AMBIENT WHITE NOISE
@@ -1578,7 +1661,7 @@
         });
       }
       const fixedDoneCount = appState.completedFixedTaskIds.length;
-      const currentHour = new Date().getHours();
+      const currentHour = getTaiwanDateParts().hour;
       const isBeforeNoon = currentHour < 12;
       const requiredFixedCount = isBeforeNoon ? 1 : 2;
       const timePeriodLabel = isBeforeNoon ? '☀️ 12:00 前早安時段' : '🌙 12:00 後午晚時段';
@@ -1795,11 +1878,11 @@
 
     // Automatically rotates every day at 06:00 AM and 17:00 PM Taiwan time (UTC+8)!
     function getTwiceDailySlotSeed() {
-      const nowTw = new Date(Date.now() + 8 * 3600 * 1000);
-      const y = nowTw.getUTCFullYear();
-      const m = nowTw.getUTCMonth();
-      const d = nowTw.getUTCDate();
-      const mins = nowTw.getUTCHours() * 60 + nowTw.getUTCMinutes();
+      const tw = getTaiwanDateParts();
+      const y = tw.year;
+      const m = tw.month - 1;
+      const d = tw.day;
+      const mins = tw.hour * 60 + tw.minute;
       const dayNumber = Math.floor(Date.UTC(y, m, d) / 86400000);
       // 06:00 AM sharp (360 mins) and 17:00 PM sharp (1020 mins)
       if (mins < 6 * 60) {
@@ -1839,10 +1922,29 @@
       return edition;
     }
 
-    // Check every 30 seconds so if the tablet stays open across 06:00 or 17:00, it switches automatically!
+    // Check every 30 seconds so if the tablet stays open across 00:00/12:00 (reset) or 06:00/17:00 (edition), it updates automatically!
     setInterval(() => {
-      try { syncTwiceDailyEdition(false); } catch (e) {}
+      try {
+        checkAndResetForNewPeriod(true);
+        syncTwiceDailyEdition(false);
+      } catch (e) {}
     }, 30000);
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        try {
+          checkAndResetForNewPeriod(true);
+          syncTwiceDailyEdition(false);
+        } catch (e) {}
+      }
+    });
+
+    window.addEventListener('focus', () => {
+      try {
+        checkAndResetForNewPeriod(true);
+        syncTwiceDailyEdition(false);
+      } catch (e) {}
+    });
 
     const RICH_3D_POOL = [
       {
