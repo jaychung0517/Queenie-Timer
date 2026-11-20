@@ -1378,7 +1378,128 @@
           gain.gain.exponentialRampToValueAtTime(0.001, now + 0.95);
           osc.start(now);
           osc.stop(now + 0.95);
+        } else if (type === 'fail') {
+          // Regretful descending 4-note scale: G4 -> F4 -> E4 -> D4
+          const failNotes = [
+            { f: 392.00, t: 0.00, d: 0.18 }, // G4
+            { f: 349.23, t: 0.20, d: 0.18 }, // F4
+            { f: 329.63, t: 0.40, d: 0.18 }, // E4
+            { f: 293.66, t: 0.60, d: 0.45 }  // D4
+          ];
+          failNotes.forEach(n => {
+            const fOsc = audioCtx.createOscillator();
+            const fGain = audioCtx.createGain();
+            fOsc.type = 'triangle';
+            fOsc.frequency.setValueAtTime(n.f, now + n.t);
+            fGain.gain.setValueAtTime(0.18, now + n.t);
+            fGain.gain.exponentialRampToValueAtTime(0.001, now + n.t + n.d);
+            fOsc.connect(fGain);
+            fGain.connect(audioCtx.destination);
+            fOsc.start(now + n.t);
+            fOsc.stop(now + n.t + n.d + 0.02);
+          });
         }
+      } catch (e) {}
+    }
+
+    function playTimerCue(mode) {
+      if (!appState.soundEnabled) return;
+      try {
+        ensureAudioCtx();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+
+        if (mode === 'milestone') {
+          // Soft gentle two-note chime for 5-min / 3-min / 1-min milestones
+          [587.33, 880].forEach((freq, idx) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.11);
+            gain.gain.setValueAtTime(0.11, now + idx * 0.11);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.11 + 0.28);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now + idx * 0.11);
+            osc.stop(now + idx * 0.11 + 0.29);
+          });
+        } else if (mode === 'sprint30') {
+          // High-tension game-style 30-second alarm rapid sequence
+          const pattern = [
+            { f: 880.00, t: 0.00, d: 0.06 },
+            { f: 880.00, t: 0.08, d: 0.06 },
+            { f: 1046.50, t: 0.16, d: 0.06 },
+            { f: 1174.66, t: 0.24, d: 0.07 },
+            { f: 1318.51, t: 0.33, d: 0.07 },
+            { f: 1174.66, t: 0.42, d: 0.06 },
+            { f: 1318.51, t: 0.50, d: 0.07 },
+            { f: 1567.98, t: 0.59, d: 0.16 }
+          ];
+          pattern.forEach(n => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(n.f, now + n.t);
+            gain.gain.setValueAtTime(0.09, now + n.t);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + n.t + n.d);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now + n.t);
+            osc.stop(now + n.t + n.d + 0.01);
+          });
+        } else if (mode === 'tick_urgent') {
+          // Crisp, tight triple-pulse beat between 29s and 11s
+          [
+            { offset: 0.00, freq: 880.00 },
+            { offset: 0.10, freq: 987.77 },
+            { offset: 0.20, freq: 1174.66 }
+          ].forEach(p => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(p.freq, now + p.offset);
+            gain.gain.setValueAtTime(0.055, now + p.offset);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + p.offset + 0.055);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now + p.offset);
+            osc.stop(now + p.offset + 0.06);
+          });
+        }
+      } catch (e) {}
+    }
+
+    function playCountdownBeep(sec) {
+      if (!appState.soundEnabled) return;
+      try {
+        ensureAudioCtx();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const clampedSec = Math.max(1, Math.min(10, sec));
+        // Main high-tension rising alarm beep (10 -> 740Hz, 1 -> 1505Hz)
+        const freq = 740 + (10 - clampedSec) * 85;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(freq, now);
+        gain.gain.setValueAtTime(0.09, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.12);
+
+        // Half-second sub-beat for urgent countdown pulse
+        const subOsc = audioCtx.createOscillator();
+        const subGain = audioCtx.createGain();
+        subOsc.type = 'triangle';
+        subOsc.frequency.setValueAtTime(freq * 0.75, now + 0.50);
+        subGain.gain.setValueAtTime(0.06, now + 0.50);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.57);
+        subOsc.connect(subGain);
+        subGain.connect(audioCtx.destination);
+        subOsc.start(now + 0.50);
+        subOsc.stop(now + 0.58);
       } catch (e) {}
     }
 
@@ -1576,7 +1697,7 @@
       }
     }
 
-    function speakText(text, forceNextPersona = true) {
+    function speakText(text, forceNextPersona = true, options = {}) {
       if (!appState.voiceEnabled) return;
       try {
         if ('speechSynthesis' in window) {
@@ -1592,12 +1713,17 @@
           }
 
           updateVoiceBadgesUI(persona, chosenVoice);
-          playPersonaVocalSignature(persona.chimeNotes);
+          if (!options || !options.skipChime) {
+            playPersonaVocalSignature(persona.chimeNotes);
+          }
 
           window.speechSynthesis.cancel();
 
           const cleanText = String(text || '').replace(/^[「『]|[」』]$/g, '');
-          const spokenText = cleanText.startsWith(persona.prefix) ? cleanText : `${persona.prefix}${cleanText}`;
+          const skipPrefix = Boolean(options && options.skipPrefix);
+          const spokenText = (skipPrefix || cleanText.startsWith(persona.prefix)) ? cleanText : `${persona.prefix}${cleanText}`;
+          const targetPitch = (options && typeof options.pitch === 'number') ? options.pitch : persona.pitch;
+          const targetRate = (options && typeof options.rate === 'number') ? options.rate : persona.rate;
 
           // Small 45ms delay after cancel() fixes Android Chrome bug where pitch/rate/voice are ignored after cancel()
           setTimeout(() => {
@@ -1608,12 +1734,39 @@
               if (chosenVoice) {
                 utter.voice = chosenVoice;
               }
-              utter.pitch = persona.pitch;
-              utter.rate = persona.rate;
+              utter.pitch = targetPitch;
+              utter.rate = targetRate;
               utter.volume = 1.0;
               window.speechSynthesis.speak(utter);
             } catch (innerErr) {}
           }, 45);
+        }
+      } catch (e) {}
+    }
+
+    function speakCountdownNumber(num) {
+      if (!appState.voiceEnabled) return;
+      try {
+        if ('speechSynthesis' in window) {
+          const personaIdx = lastPersonaIdx >= 0 ? lastPersonaIdx : 0;
+          const persona = FEMALE_VOICE_PERSONAS[personaIdx % FEMALE_VOICE_PERSONAS.length];
+          const femaleVoices = getFemaleMandarinVoices();
+          const chosenVoice = pickBestVoiceForPersona(persona, femaleVoices);
+
+          window.speechSynthesis.cancel();
+          setTimeout(() => {
+            try {
+              const utter = new SpeechSynthesisUtterance(String(num));
+              utter.lang = (chosenVoice && chosenVoice.lang) ? chosenVoice.lang : (persona ? persona.preferLang : 'zh-TW');
+              if (chosenVoice) {
+                utter.voice = chosenVoice;
+              }
+              utter.pitch = persona ? persona.pitch : 1.1;
+              utter.rate = 1.38;
+              utter.volume = 1.0;
+              window.speechSynthesis.speak(utter);
+            } catch (innerErr) {}
+          }, 20);
         }
       } catch (e) {}
     }
@@ -3733,6 +3886,8 @@
     // =====================================================
     let timerTotalSeconds = 15 * 60;
     let timerRemainingSeconds = 15 * 60;
+    let initialTimerTotalSeconds = 15 * 60;
+    let announcedTimerMilestones = new Set();
     let timerIntervalId = null;
     let timerRunning = false;
     const CIRCLE_CIRCUMFERENCE = 578; // 2 * pi * 92
@@ -3779,6 +3934,8 @@
       timerRunning = false;
       timerTotalSeconds = minutes * 60;
       timerRemainingSeconds = minutes * 60;
+      initialTimerTotalSeconds = timerTotalSeconds;
+      announcedTimerMilestones = new Set();
       if (labelText) {
         document.getElementById('timerCurrentTaskTag').textContent = labelText;
       }
@@ -3833,8 +3990,13 @@
         triggerSkullPenalty();
         updateTimerUI();
       } else {
+        const isFreshStart = (timerRemainingSeconds <= 0 || timerRemainingSeconds === timerTotalSeconds);
         if (timerRemainingSeconds <= 0) {
           timerRemainingSeconds = timerTotalSeconds;
+        }
+        if (isFreshStart) {
+          initialTimerTotalSeconds = timerTotalSeconds;
+          announcedTimerMilestones = new Set();
         }
         timerRunning = true;
         document.getElementById('timerStatusCaption').textContent = '星朵兔正在陪妳一起專心喔！加油！';
@@ -3844,16 +4006,117 @@
           if (timerRemainingSeconds > 0) {
             timerRemainingSeconds -= 1;
             updateTimerUI();
+            handleTimerCountdownMilestones(timerRemainingSeconds);
           } else {
             clearInterval(timerIntervalId);
             timerIntervalId = null;
             timerRunning = false;
-            document.getElementById('timerEmojiState').textContent = '⏰🐰💦';
-            document.getElementById('timerStatusCaption').textContent = '哎呀！限制時間到了！已經做完了嗎？快按「提前完成」或加時收尾喔！';
-            speakText(`哎呀，限制的時間到囉！${appState.childName}如果已經做完了，請按綠色的提前完成按鈕喔！`);
             updateTimerUI();
           }
         }, 1000);
+      }
+    }
+
+    function handleTimerCountdownMilestones(remainingSeconds) {
+      const childName = appState.childName || '鍾靈';
+
+      if (remainingSeconds <= 0) {
+        if (!announcedTimerMilestones.has(0)) {
+          announcedTimerMilestones.add(0);
+          if (timerIntervalId) {
+            clearInterval(timerIntervalId);
+            timerIntervalId = null;
+          }
+          timerRunning = false;
+          document.getElementById('timerEmojiState').textContent = '⏰😢💦';
+          document.getElementById('timerStatusCaption').textContent = '⏰ 時間已到，挑戰失敗！下次再加油！';
+          playChime('fail');
+          speakText('時間已經到了！這次挑戰失敗囉，下次動作要再快一點，在時間內提前完成喔！', true, {
+            rate: 1.05,
+            pitch: 0.92,
+            skipPrefix: true,
+            skipChime: true
+          });
+          updateTimerUI();
+        }
+        return;
+      }
+
+      // 10 to 1 seconds: high-tension rising beep + half-second sub-beat + rate 1.38 synchronized countdown
+      if (remainingSeconds >= 1 && remainingSeconds <= 10) {
+        if (!announcedTimerMilestones.has(remainingSeconds)) {
+          announcedTimerMilestones.add(remainingSeconds);
+          playCountdownBeep(remainingSeconds);
+          speakCountdownNumber(remainingSeconds);
+        }
+        return;
+      }
+
+      // 30 seconds: urgent high-tension game alarm + fast sprint voice prompt
+      if (remainingSeconds === 30 && 30 < initialTimerTotalSeconds) {
+        if (!announcedTimerMilestones.has(30)) {
+          announcedTimerMilestones.add(30);
+          playTimerCue('sprint30');
+          speakText('來不及了！只剩下三十秒，快衝刺！', true, {
+            rate: 1.30,
+            pitch: 1.15,
+            skipPrefix: true,
+            skipChime: true
+          });
+        }
+        return;
+      }
+
+      // 29 to 11 seconds: crisp triple-pulse urgent beat every second
+      if (remainingSeconds >= 11 && remainingSeconds < 30 && 30 < initialTimerTotalSeconds) {
+        playTimerCue('tick_urgent');
+        return;
+      }
+
+      // 1 minute (60s)
+      if (remainingSeconds === 60 && 60 < initialTimerTotalSeconds) {
+        if (!announcedTimerMilestones.has(60)) {
+          announcedTimerMilestones.add(60);
+          playTimerCue('milestone');
+          speakText('快點快點！只剩下最後一分鐘了，趕快完成！', true, {
+            rate: 1.22,
+            skipPrefix: true,
+            skipChime: true
+          });
+        }
+        return;
+      }
+
+      // 3 minutes (180s)
+      if (remainingSeconds === 180 && 180 < initialTimerTotalSeconds) {
+        if (!announcedTimerMilestones.has(180)) {
+          announcedTimerMilestones.add(180);
+          playTimerCue('milestone');
+          speakText(`${childName}，只剩最後三分鐘囉！動作要加快一點喔！`, true, {
+            rate: 1.15,
+            skipPrefix: true,
+            skipChime: true
+          });
+        }
+        return;
+      }
+
+      // Multiples of 5 minutes (>= 300s)
+      if (
+        remainingSeconds < initialTimerTotalSeconds &&
+        remainingSeconds >= 300 &&
+        remainingSeconds % 300 === 0
+      ) {
+        if (!announcedTimerMilestones.has(remainingSeconds)) {
+          announcedTimerMilestones.add(remainingSeconds);
+          const mins = remainingSeconds / 60;
+          playTimerCue('milestone');
+          if (mins === 5) {
+            speakText(`${childName}，剩下最後 5 分鐘囉，快完成啦！`);
+          } else {
+            speakText(`${childName}，還剩下 ${mins} 分鐘喔，繼續加油！`);
+          }
+        }
       }
     }
 
