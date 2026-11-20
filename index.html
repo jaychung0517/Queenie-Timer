@@ -859,7 +859,7 @@
               <span id="cloudSyncStatusBadge" class="text-xs font-extrabold text-emerald-800">連線就緒（自動讀取最新生成的 AI 角色共舞圖）</span>
             </div>
             <p class="text-xs text-slate-600 leading-relaxed">
-              每天早上 <strong>06:00</strong> 與下午 <strong>17:00</strong> 排程生成全新不重複熱門 IP 角色與 3D 鍾靈共舞圖後，會自動上傳至您的 Google Drive 圖庫並寫入同步表；手機上的 HTML 檔每次開啟或達標時會自動連線讀取最新動畫！
+              採用<strong>雲端 50 組大圖庫隨機抽 3 組（每週六自動補貨）</strong>機制，生成全新不重複熱門 IP 角色與 3D 鍾靈共舞圖後，會自動上傳至您的 Google Drive 圖庫並寫入同步表；手機上的 HTML 檔每次開啟或達標時會自動連線讀取最新動畫！
             </p>
           </div>
           <div class="flex items-center gap-2">
@@ -1061,7 +1061,7 @@
 
     <!-- Clean Bottom Bar: ZERO intrusive text cards! -->
     <footer class="relative z-30 py-1.5 px-4 text-center text-xs font-bold text-slate-500">
-      🎁 每日早上 6:00 與下午 17:00 自動更新角色庫！每次開啟或點擊「🔀 換一支舞！」都會隨機抽出不同驚喜動畫喔！
+      🎁 雲端 50 組大圖庫隨機抽 3 組（每週六自動補貨）！每次開啟或點擊「🔀 換一支舞！」都會隨機抽出不同驚喜動畫喔！
     </footer>
   </div>
 
@@ -1851,7 +1851,7 @@
       }
       saveState();
       syncTwiceDailyEdition(false);
-      syncFromGitHubDailyJson(false).then(ok => { if (!ok) syncFromGoogleDriveCloud(false); });
+      syncFromGoogleDriveCloud(false);
       renderHeaderAndStats();
       renderRoutinesAndSteps();
       checkAndTriggerGrandRewardIfReady(`提前完成固定倒數任務「${taskLabel}」`);
@@ -2299,56 +2299,102 @@
       });
     }
 
+    let driveSyncShowFeedback = false;
+
+    function formatGvizDateCell(cell) {
+      if (!cell) return '';
+      if (cell.f != null) {
+        const formatted = String(cell.f).trim();
+        if (formatted && !formatted.startsWith('Date(')) return formatted;
+      }
+      const raw = cell.v != null ? String(cell.v).trim() : '';
+      if (!raw) return '';
+      const m = raw.match(/^Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})(?:,\s*(\d{1,2}),\s*(\d{1,2})(?:,\s*(\d{1,2}))?)?\)$/);
+      if (m) {
+        const yr = m[1];
+        const mo = String(Number(m[2]) + 1).padStart(2, '0');
+        const dy = String(Number(m[3])).padStart(2, '0');
+        if (m[4] !== undefined && m[5] !== undefined) {
+          const hh = String(Number(m[4])).padStart(2, '0');
+          const mm = String(Number(m[5])).padStart(2, '0');
+          return `${yr}-${mo}-${dy} ${hh}:${mm}`;
+        }
+        return `${yr}-${mo}-${dy}`;
+      }
+      return raw;
+    }
+
     window.__onStarryDriveSync = async function(response) {
+      const fb = driveSyncShowFeedback;
+      driveSyncShowFeedback = false;
       try {
         if (!response || !response.table || !Array.isArray(response.table.rows) || response.table.rows.length === 0) {
+          await syncFromGitHubDailyJson(fb);
           return;
         }
-        // Pick the latest non-header row (if row 0 is header 'slot_key', pick the last row; otherwise pick the last populated row)
         const rows = response.table.rows;
-        let targetRow = rows[rows.length - 1];
-        for (let r = rows.length - 1; r >= 0; r--) {
-          const c0 = rows[r] && rows[r].c && rows[r].c[0] && rows[r].c[0].v ? String(rows[r].c[0].v).trim() : '';
-          if (c0 && c0 !== 'slot_key') {
-            targetRow = rows[r];
-            break;
-          }
+        const pool = [];
+        let latestRow = null;
+        let latestSlotKey = '';
+        let formattedUpdatedAt = '';
+
+        for (let r = 0; r < rows.length; r++) {
+          const row = rows[r];
+          if (!row || !Array.isArray(row.c)) continue;
+          const getVal = (i) => (row.c[i] && row.c[i].v != null) ? String(row.c[i].v).trim() : '';
+          const rowSlotKey = getVal(0);
+          if (!rowSlotKey || rowSlotKey === 'slot_key') continue;
+
+          latestRow = row;
+          latestSlotKey = rowSlotKey;
+          const rowUpdatedAt = formatGvizDateCell(row.c[1]);
+          if (rowUpdatedAt) formattedUpdatedAt = rowUpdatedAt;
+
+          const offsets = [2, 7, 12];
+          offsets.forEach((off, idx) => {
+            const title = getVal(off);
+            const tag = getVal(off + 1);
+            const cap = getVal(off + 2);
+            const fA = getVal(off + 3);
+            const fB = getVal(off + 4);
+            if (fA || fB) {
+              pool.push({
+                slotKey: rowSlotKey,
+                title: title || ANIMATION_EDITIONS[0].items[idx].name,
+                tag: tag || ANIMATION_EDITIONS[0].items[idx].tag,
+                cap: cap || ANIMATION_EDITIONS[0].items[idx].caption,
+                fA,
+                fB
+              });
+            }
+          });
         }
-        if (!targetRow || !Array.isArray(targetRow.c)) return;
-        const cellVal = (i) => (targetRow.c[i] && targetRow.c[i].v != null) ? String(targetRow.c[i].v).trim() : '';
 
-        const slotKey = cellVal(0);
-        const updatedAt = cellVal(1);
-        if (!slotKey || slotKey === 'slot_key') return;
+        if (!latestRow || pool.length === 0) {
+          await syncFromGitHubDailyJson(fb);
+          return;
+        }
 
-        const a1Title = cellVal(2) || ANIMATION_EDITIONS[0].items[0].name;
-        const a1Tag = cellVal(3) || ANIMATION_EDITIONS[0].items[0].tag;
-        const a1Cap = cellVal(4) || ANIMATION_EDITIONS[0].items[0].caption;
-        const a1FA = cellVal(5);
-        const a1FB = cellVal(6);
+        const shuffledPool = pool.slice();
+        for (let i = shuffledPool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffledPool[i], shuffledPool[j]] = [shuffledPool[j], shuffledPool[i]];
+        }
+        const p1 = shuffledPool[0];
+        const p2 = shuffledPool[1] || shuffledPool[0];
+        const p3 = shuffledPool[2] || shuffledPool[1] || shuffledPool[0];
 
-        const a2Title = cellVal(7) || ANIMATION_EDITIONS[0].items[1].name;
-        const a2Tag = cellVal(8) || ANIMATION_EDITIONS[0].items[1].tag;
-        const a2Cap = cellVal(9) || ANIMATION_EDITIONS[0].items[1].caption;
-        const a2FA = cellVal(10);
-        const a2FB = cellVal(11);
-
-        const a3Title = cellVal(12) || ANIMATION_EDITIONS[0].items[2].name;
-        const a3Tag = cellVal(13) || ANIMATION_EDITIONS[0].items[2].tag;
-        const a3Cap = cellVal(14) || ANIMATION_EDITIONS[0].items[2].caption;
-        const a3FA = cellVal(15);
-        const a3FB = cellVal(16);
-
-        const mode3D1 = cellVal(17) || 'kirby';
-        const mode3D2 = cellVal(18) || 'idol_princess';
+        const latestVal = (i) => (latestRow.c[i] && latestRow.c[i].v != null) ? String(latestRow.c[i].v).trim() : '';
+        const mode3D1 = latestVal(17) || 'kirby';
+        const mode3D2 = latestVal(18) || 'idol_princess';
 
         const [u1A, u1B, u2A, u2B, u3A, u3B] = await Promise.all([
-          preloadDriveFrameWithFallback(a1FA, F_POKE_1),
-          preloadDriveFrameWithFallback(a1FB, F_POKE_2),
-          preloadDriveFrameWithFallback(a2FA, F_GARDEN_1),
-          preloadDriveFrameWithFallback(a2FB, F_GARDEN_2),
-          preloadDriveFrameWithFallback(a3FA, F_CLOUD_1),
-          preloadDriveFrameWithFallback(a3FB, F_CLOUD_2)
+          preloadDriveFrameWithFallback(p1.fA, F_POKE_1),
+          preloadDriveFrameWithFallback(p1.fB, F_POKE_2),
+          preloadDriveFrameWithFallback(p2.fA, F_GARDEN_1),
+          preloadDriveFrameWithFallback(p2.fB, F_GARDEN_2),
+          preloadDriveFrameWithFallback(p3.fA, F_CLOUD_1),
+          preloadDriveFrameWithFallback(p3.fB, F_CLOUD_2)
         ]);
 
         const match3D1 = RICH_3D_POOL.find(p => p.threeMode === mode3D1 || p.archetype === mode3D1) || RICH_3D_POOL[5];
@@ -2356,31 +2402,31 @@
 
         cloudSyncedItems = [
           {
-            id: 'cloud_b1_' + slotKey,
+            id: 'cloud_b1_' + p1.slotKey,
             type: 'movie',
-            name: a1Title,
-            tag: a1Tag,
+            name: p1.title,
+            tag: p1.tag,
             frames: [u1A, u1B],
-            caption: a1Cap
+            caption: p1.cap
           },
           {
-            id: 'cloud_b2_' + slotKey,
+            id: 'cloud_b2_' + p2.slotKey,
             type: 'movie',
-            name: a2Title,
-            tag: a2Tag,
+            name: p2.title,
+            tag: p2.tag,
             frames: [u2A, u2B],
-            caption: a2Cap
+            caption: p2.cap
           },
           {
-            id: 'cloud_b3_' + slotKey,
+            id: 'cloud_b3_' + p3.slotKey,
             type: 'movie',
-            name: a3Title,
-            tag: a3Tag,
+            name: p3.title,
+            tag: p3.tag,
             frames: [u3A, u3B],
-            caption: a3Cap
+            caption: p3.cap
           },
           {
-            id: 'cloud_3d1_' + slotKey,
+            id: 'cloud_3d1_' + latestSlotKey,
             type: 'three',
             threeMode: match3D1.threeMode,
             name: '4. ' + match3D1.name.replace(/^[^\s]+\s*/, ''),
@@ -2388,7 +2434,7 @@
             caption: match3D1.caption
           },
           {
-            id: 'cloud_3d2_' + slotKey,
+            id: 'cloud_3d2_' + latestSlotKey,
             type: 'three',
             threeMode: match3D2.threeMode,
             name: '5. ' + match3D2.name.replace(/^[^\s]+\s*/, ''),
@@ -2397,23 +2443,28 @@
           }
         ];
 
-        // Update Edition 0 with the latest live cloud animations and activate it!
-        ANIMATION_EDITIONS[0].editionTitle = `☁️ Google Drive 雲端最新同步（${updatedAt || slotKey}）`;
+        const displayDate = formattedUpdatedAt || latestSlotKey;
+        ANIMATION_EDITIONS[0].editionTitle = `☁️ Google Drive 雲端圖庫池（共 ${pool.length} 組，最新補貨：${displayDate}）`;
         ANIMATION_EDITIONS[0].items = cloudSyncedItems;
         if (manualEditionOffset === 0) {
           HYBRID_ANIMATIONS = cloudSyncedItems;
         }
-        lastSyncedDriveSlotKey = slotKey;
+        lastSyncedDriveSlotKey = latestSlotKey;
 
         const statusBadge = document.getElementById('cloudSyncStatusBadge');
         if (statusBadge) {
-          statusBadge.textContent = `✅ 已同步雲端最新期別：${updatedAt || slotKey}（共 5 款全新動畫）`;
+          statusBadge.textContent = `✅ 已同步雲端圖庫池：共 ${pool.length} 組隨機輪播（最新補貨：${displayDate}）`;
         }
         const btnLabel = document.getElementById('cloudSyncBtnLabel');
         if (btnLabel) {
-          btnLabel.textContent = `雲端已同步 (${slotKey})`;
+          btnLabel.textContent = `雲端已同步 (${latestSlotKey})`;
         }
-      } catch (err) {}
+        if (fb) {
+          showToast(`☁️ 已從雲端 ${pool.length} 組圖庫隨機抽出 3 組動畫！`, '🎉');
+        }
+      } catch (err) {
+        await syncFromGitHubDailyJson(fb);
+      }
     };
 
     
@@ -2422,6 +2473,7 @@
     // Automatically reads images generated by GitHub Actions at 06:00 & 17:00!
     // =====================================================
     async function syncFromGitHubDailyJson(showFeedback = false) {
+      if (lastSyncedDriveSlotKey) return false;
       if (!location.protocol.startsWith('http')) return false;
       try {
         const res = await window['fet' + 'ch']('./daily_animations.json?t=' + Date.now(), { cache: 'no-store' });
@@ -2489,6 +2541,7 @@
 
     function syncFromGoogleDriveCloud(showFeedback = false) {
       try {
+        driveSyncShowFeedback = Boolean(showFeedback);
         const oldScript = document.getElementById('starryDriveJsonpScript');
         if (oldScript && oldScript.parentNode) {
           oldScript.parentNode.removeChild(oldScript);
@@ -2497,14 +2550,12 @@
         s.id = 'starryDriveJsonpScript';
         s.async = true;
         s.src = 'https://docs.google.com/spreadsheets/d/' + DRIVE_SYNC_SHEET_ID + '/gviz/tq?tqx=responseHandler:__onStarryDriveSync&t=' + Date.now();
-        s.onerror = () => {
-          if (showFeedback) {
+        s.onerror = async () => {
+          const fb = driveSyncShowFeedback;
+          driveSyncShowFeedback = false;
+          const ok = await syncFromGitHubDailyJson(fb);
+          if (!ok && fb) {
             showToast('目前使用內建高畫質動畫庫（請確認雲端資料夾已開啟「知道連結的任何人可檢視」）', '☁️');
-          }
-        };
-        s.onload = () => {
-          if (showFeedback) {
-            showToast('☁️ 已從 Google Drive 讀取最新一期 AI 獎勵動畫！', '🎉');
           }
         };
         document.body.appendChild(s);
@@ -4662,7 +4713,7 @@
       if (btnParentSyncDrive) {
         btnParentSyncDrive.addEventListener('click', () => {
           manualEditionOffset = 0;
-          syncFromGitHubDailyJson(true).then(ok => { if (!ok) syncFromGoogleDriveCloud(true); });
+          syncFromGoogleDriveCloud(true);
         });
       }
       const btnParentEdition = document.getElementById('btnParentSwitchEdition');
