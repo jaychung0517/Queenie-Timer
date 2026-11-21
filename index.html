@@ -2373,6 +2373,7 @@
     }
 
     let driveSyncShowFeedback = false;
+    let driveSyncForceRedraw = false;
 
     function formatGvizDateCell(cell) {
       if (!cell) return '';
@@ -2397,9 +2398,112 @@
       return raw;
     }
 
+    const STARRY_SEEN_ANIM_KEYS_STORAGE = 'starry_seen_anim_keys_v1';
+    const STARRY_PERIOD_PICKS_STORAGE = 'starry_period_picks_v1';
+
+    function getStarryPoolItemKey(item) {
+      if (!item) return '';
+      return String(item.frameAId || item.fA || item.title || '').trim();
+    }
+
+    function shuffleArrayInPlace(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function pickNonRepeatingSets(pool, count = 3, forceRedraw = false) {
+      if (!Array.isArray(pool) || pool.length === 0) {
+        return { picked: [], seenCount: 0, totalCount: 0, reusedPeriod: false };
+      }
+
+      const poolMap = new Map();
+      pool.forEach(item => {
+        const k = getStarryPoolItemKey(item);
+        if (k && !poolMap.has(k)) {
+          poolMap.set(k, item);
+        }
+      });
+
+      let seenKeys = [];
+      try {
+        const rawSeen = localStorage.getItem(STARRY_SEEN_ANIM_KEYS_STORAGE);
+        if (rawSeen) {
+          const parsedSeen = JSON.parse(rawSeen);
+          if (Array.isArray(parsedSeen)) {
+            seenKeys = parsedSeen.map(k => String(k || '').trim()).filter(Boolean);
+          }
+        }
+      } catch (e) {}
+
+      let periodPicks = null;
+      try {
+        const rawPeriod = localStorage.getItem(STARRY_PERIOD_PICKS_STORAGE);
+        if (rawPeriod) {
+          const parsedPeriod = JSON.parse(rawPeriod);
+          if (parsedPeriod && typeof parsedPeriod === 'object') {
+            periodPicks = parsedPeriod;
+          }
+        }
+      } catch (e) {}
+
+      const currentPeriodKey = getTaiwanPeriodKey();
+      const targetCount = Math.min(count, pool.length);
+
+      if (!forceRedraw && periodPicks && periodPicks.periodKey === currentPeriodKey && Array.isArray(periodPicks.keys)) {
+        const matched = periodPicks.keys.map(k => poolMap.get(String(k || '').trim())).filter(Boolean);
+        if (matched.length >= targetCount) {
+          const picked = matched.slice(0, targetCount);
+          const seenSet = new Set(seenKeys);
+          picked.forEach(it => seenSet.add(getStarryPoolItemKey(it)));
+          try {
+            localStorage.setItem(STARRY_SEEN_ANIM_KEYS_STORAGE, JSON.stringify(Array.from(seenSet)));
+          } catch (e) {}
+          const seenCount = pool.filter(it => seenSet.has(getStarryPoolItemKey(it))).length;
+          return { picked, seenCount, totalCount: pool.length, reusedPeriod: true };
+        }
+      }
+
+      const seenSet = new Set(seenKeys);
+      const unseen = pool.filter(it => !seenSet.has(getStarryPoolItemKey(it)));
+      let picked = [];
+      let newSeenSet = new Set(seenKeys);
+
+      if (unseen.length >= targetCount) {
+        const shuffledUnseen = shuffleArrayInPlace(unseen.slice());
+        picked = shuffledUnseen.slice(0, targetCount);
+        picked.forEach(it => newSeenSet.add(getStarryPoolItemKey(it)));
+      } else {
+        picked = shuffleArrayInPlace(unseen.slice());
+        const pickedKeys = new Set(picked.map(getStarryPoolItemKey));
+        newSeenSet = new Set(pickedKeys);
+        const remainingPool = pool.filter(it => !pickedKeys.has(getStarryPoolItemKey(it)));
+        shuffleArrayInPlace(remainingPool);
+        const needed = targetCount - picked.length;
+        const extra = remainingPool.slice(0, needed);
+        picked = picked.concat(extra);
+        extra.forEach(it => newSeenSet.add(getStarryPoolItemKey(it)));
+      }
+
+      try {
+        localStorage.setItem(STARRY_SEEN_ANIM_KEYS_STORAGE, JSON.stringify(Array.from(newSeenSet)));
+        localStorage.setItem(STARRY_PERIOD_PICKS_STORAGE, JSON.stringify({
+          periodKey: currentPeriodKey,
+          keys: picked.map(getStarryPoolItemKey)
+        }));
+      } catch (e) {}
+
+      const seenCount = pool.filter(it => newSeenSet.has(getStarryPoolItemKey(it))).length;
+      return { picked, seenCount, totalCount: pool.length, reusedPeriod: false };
+    }
+
     window.__onStarryDriveSync = async function(response) {
       const fb = driveSyncShowFeedback;
+      const forceRedraw = driveSyncForceRedraw;
       driveSyncShowFeedback = false;
+      driveSyncForceRedraw = false;
       try {
         if (!response || !response.table || !Array.isArray(response.table.rows) || response.table.rows.length === 0) {
           await syncFromGitHubDailyJson(fb);
@@ -2407,6 +2511,7 @@
         }
         const rows = response.table.rows;
         const pool = [];
+        const seenPoolKeys = new Set();
         let latestRow = null;
         let latestSlotKey = '';
         let formattedUpdatedAt = '';
@@ -2431,14 +2536,20 @@
             const fA = getVal(off + 3);
             const fB = getVal(off + 4);
             if (fA || fB) {
-              pool.push({
+              const itemObj = {
                 slotKey: rowSlotKey,
                 title: title || ANIMATION_EDITIONS[0].items[idx].name,
                 tag: tag || ANIMATION_EDITIONS[0].items[idx].tag,
                 cap: cap || ANIMATION_EDITIONS[0].items[idx].caption,
                 fA,
-                fB
-              });
+                fB,
+                frameAId: fA
+              };
+              const itemKey = getStarryPoolItemKey(itemObj);
+              if (itemKey && !seenPoolKeys.has(itemKey)) {
+                seenPoolKeys.add(itemKey);
+                pool.push(itemObj);
+              }
             }
           });
         }
@@ -2448,14 +2559,10 @@
           return;
         }
 
-        const shuffledPool = pool.slice();
-        for (let i = shuffledPool.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [shuffledPool[i], shuffledPool[j]] = [shuffledPool[j], shuffledPool[i]];
-        }
-        const p1 = shuffledPool[0];
-        const p2 = shuffledPool[1] || shuffledPool[0];
-        const p3 = shuffledPool[2] || shuffledPool[1] || shuffledPool[0];
+        const { picked, seenCount, totalCount } = pickNonRepeatingSets(pool, 3, forceRedraw);
+        const p1 = picked[0];
+        const p2 = picked[1] || picked[0];
+        const p3 = picked[2] || picked[1] || picked[0];
 
         const latestVal = (i) => (latestRow.c[i] && latestRow.c[i].v != null) ? String(latestRow.c[i].v).trim() : '';
         const mode3D1 = latestVal(17) || 'kirby';
@@ -2517,23 +2624,25 @@
         ];
 
         const displayDate = formattedUpdatedAt || latestSlotKey;
-        ANIMATION_EDITIONS[0].editionTitle = `☁️ Google Drive 雲端圖庫池（共 ${pool.length} 組，最新補貨：${displayDate}）`;
+        ANIMATION_EDITIONS[0].editionTitle = `☁️ Google Drive 雲端圖庫池（共 ${totalCount} 組｜本輪已看 ${seenCount}/${totalCount}，最新補貨：${displayDate}）`;
         ANIMATION_EDITIONS[0].items = cloudSyncedItems;
         if (manualEditionOffset === 0) {
           HYBRID_ANIMATIONS = cloudSyncedItems;
+          const badgeEl = document.getElementById('dailyEditionBadge');
+          if (badgeEl) badgeEl.textContent = ANIMATION_EDITIONS[0].editionTitle;
         }
         lastSyncedDriveSlotKey = latestSlotKey;
 
         const statusBadge = document.getElementById('cloudSyncStatusBadge');
         if (statusBadge) {
-          statusBadge.textContent = `✅ 已同步雲端圖庫池：共 ${pool.length} 組隨機輪播（最新補貨：${displayDate}）`;
+          statusBadge.textContent = `✅ 已同步雲端圖庫池：共 ${totalCount} 組不重複輪播｜本輪已看過 ${seenCount} / ${totalCount} 組（最新補貨：${displayDate}）`;
         }
         const btnLabel = document.getElementById('cloudSyncBtnLabel');
         if (btnLabel) {
           btnLabel.textContent = `雲端已同步 (${latestSlotKey})`;
         }
         if (fb) {
-          showToast(`☁️ 已從雲端 ${pool.length} 組圖庫隨機抽出 3 組動畫！`, '🎉');
+          showToast(`☁️ 已從雲端 ${totalCount} 組圖庫不重複抽出 3 組動畫（本輪已看過 ${seenCount} / ${totalCount} 組）！`, '🎉');
         }
       } catch (err) {
         await syncFromGitHubDailyJson(fb);
@@ -2612,9 +2721,10 @@
       }
     }
 
-    function syncFromGoogleDriveCloud(showFeedback = false) {
+    function syncFromGoogleDriveCloud(showFeedback = false, forceRedraw = false) {
       try {
         driveSyncShowFeedback = Boolean(showFeedback);
+        driveSyncForceRedraw = Boolean(forceRedraw);
         const oldScript = document.getElementById('starryDriveJsonpScript');
         if (oldScript && oldScript.parentNode) {
           oldScript.parentNode.removeChild(oldScript);
@@ -4820,7 +4930,7 @@
       if (btnParentSyncDrive) {
         btnParentSyncDrive.addEventListener('click', () => {
           manualEditionOffset = 0;
-          syncFromGoogleDriveCloud(true);
+          syncFromGoogleDriveCloud(true, true);
         });
       }
       const btnParentEdition = document.getElementById('btnParentSwitchEdition');
